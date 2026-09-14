@@ -6,9 +6,15 @@
  *
  * จึงใช้ตัวชี้วัดที่ auto-exposure รบกวนไม่ได้แทน:
  *   dark channel  — ในภาพกลางแจ้งปกติ ทุกบริเวณจะมีอย่างน้อยหนึ่งช่องสีที่มืด
- *                   ถ้าค่าต่ำสุดของ R,G,B สูงไปหมด แปลว่ามีฝ้าขาวคลุม = หมอก/ฝน
- *   Laplacian var — พลังงานความถี่สูง ต่ำ = ภาพเบลอ มักเกิดจากน้ำเกาะเลนส์
+ *                   ถ้าค่าต่ำสุดของ R,G,B สูงไปหมด แปลว่าแสงกระเจิงผิดปกติ
+ *   Laplacian var — พลังงานความถี่สูง ต่ำ = ภาพเบลอ มักเกิดจากน้ำเกาะเลนส์หรือหมอก
  *   ความต่างของความคมชัดระหว่างโซน — บางโซนเบลอถาวร = เลนส์สกปรกหรือมีคราบ
+ *
+ * ข้อควรระวัง: dark channel สูงเพียงอย่างเดียวไม่ได้แปลว่ามีหมอกเสมอไป
+ * ท้องฟ้าครึ้มหรือแดดจ้าธรรมดาก็ทำให้ค่านี้สูงได้โดยไม่มีฝ้าเลย
+ * หมอกจริงจะทำให้ภาพ "สว่างขึ้นและเบลอลงพร้อมกัน" เพราะแสงกระเจิง
+ * จึงต้องเจอทั้งสองอาการร่วมกันถึงจะฟันธงว่าเป็นหมอกหนา (ดู #result)
+ * ถ้าสว่างอย่างเดียวแต่ภาพยังคมชัด จะลดระดับเป็นแค่ "ควรระวัง" แทน
  */
 
 import { clamp, ema } from './util.js';
@@ -21,6 +27,7 @@ export class VisionMeter {
     this.mean = 0;
     this.zoneSpread = 0;
     this.detail = 0;      // มีรายละเอียดในภาพให้วิเคราะห์แค่ไหน
+    this.sharpScore = 100; // คะแนนความคมชัด 0-100 ใช้คู่กับ haze เพื่อแยกแสงจ้ากับหมอกจริง
     this.night = false;
     this.score = 100;
     this.first = true;
@@ -84,7 +91,9 @@ export class VisionMeter {
 
     const a = this.first ? 1 : 0.2;
     this.mean = ema(this.mean, meanLum, a);
-    this.haze = ema(this.haze, clamp((darkCh - 45) / 120, 0, 1), a);
+    // ยกฐานขึ้นจาก 45 เป็น 70: ภาพกลางวันแดดจ้าธรรมดาก็มี dark channel สูง
+    // ได้อยู่แล้วโดยไม่มีฝ้าเลย เกณฑ์เดิมนับเป็นฝ้าตั้งแต่ยังสว่างไม่มากพอ
+    this.haze = ema(this.haze, clamp((darkCh - 70) / 110, 0, 1), a);
     this.sharp = ema(this.sharp, lapVar, a);
     this.zoneSpread = ema(this.zoneSpread, spread, a);
     this.night = night;
@@ -99,6 +108,7 @@ export class VisionMeter {
       : clamp((this.mean - 18) * 3.2, 0, 100);
 
     this.detail = ema(this.detail, sharpScore, a);
+    this.sharpScore = ema(this.sharpScore ?? sharpScore, sharpScore, a);
 
     // ภาพที่ไม่มีรายละเอียดเลย (มืดสนิท หรือขาวโพลน) จะได้คะแนน haze สูงหลอกๆ
     // เพราะ dark channel ต่ำ ทั้งที่มองอะไรไม่เห็นเลย จึงกดเพดานคะแนนไว้
@@ -111,7 +121,12 @@ export class VisionMeter {
 
   #result() {
     let reason = null, level = 0;   // 0 ปกติ, 1 ควรระวัง, 2 ไม่ควรพึ่งกล้อง
-    if (this.haze > 0.62) { reason = 'มีฝ้าหรือหมอกหนาบังกล้อง'; level = 2; }
+    // หมอก/ฝ้าจริงทำให้แสงกระเจิง ภาพจะ "สว่างขึ้นและเบลอลงพร้อมกัน"
+    // ถ้าสว่างขึ้นอย่างเดียวแต่ภาพยังคมชัดปกติ (เช่นท้องฟ้าครึ้มหรือแดดจ้า)
+    // ไม่ใช่หมอก จึงต้องเจอทั้งสองอาการพร้อมกันถึงจะฟันธงว่ามีฝ้าหนา
+    const blurredToo = this.sharpScore < 55;
+    if (this.haze > 0.68 && blurredToo) { reason = 'มีฝ้าหรือหมอกหนาบังกล้อง'; level = 2; }
+    else if (this.haze > 0.68) { reason = 'แสงจ้าหรือท้องฟ้าสว่างมาก ความแม่นยำอาจลดลงเล็กน้อย'; level = 1; }
     else if (this.detail < 12) {
       reason = this.night ? 'มืดเกินกว่ากล้องจะแยกถนนได้' : 'ภาพแทบไม่มีรายละเอียดให้วิเคราะห์';
       level = 2;
@@ -130,5 +145,5 @@ export class VisionMeter {
     };
   }
 
-  reset() { this.first = true; this.score = 100; this.detail = 0; }
+  reset() { this.first = true; this.score = 100; this.detail = 0; this.sharpScore = 100; }
 }
