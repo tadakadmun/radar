@@ -2,10 +2,13 @@
  *
  * ทุกค่าเป็นสัดส่วน 0..1 ของเฟรม จึงไม่ผูกกับความละเอียดกล้อง
  * ค่าเริ่มต้นตั้งจากการติดโทรศัพท์แนวตั้งกลางกระจกหน้า สูงประมาณ 1.2 ม.
- * ต้องยืนยันภาพและแนวกล้องก่อนเปิดการเตือนจากภาพในแต่ละการเปิดหน้าเว็บ
+ * ต้องยืนยันภาพและแนวกล้องขณะจอดอย่างน้อยหนึ่งครั้ง ค่าที่ยืนยันแล้วจะจำไว้
+ * และใช้ต่อได้ตราบใดที่สัดส่วนภาพกล้องยังเท่าเดิม (ถ้าหมุนจอ/เปลี่ยนกล้อง ต้องยืนยันใหม่)
+ * ย้ายแท่นหรือเปลี่ยนมุมกล้องเมื่อไร ให้ตั้งกล้องใหม่
  */
 
-const KEY = 'navassist.calib.v1';
+const KEY = 'navassist.calib.v2';
+const OLD_KEY = 'navassist.calib.v1';
 
 export const DEFAULTS = {
   horizonY: 0.50,     // เส้นขอบฟ้าในเฟรม
@@ -26,8 +29,14 @@ let cal = { ...DEFAULTS };
 
 try {
   const raw = localStorage.getItem(KEY);
-  // Old profiles were marked verified by moving any slider. Require confirmation again.
-  if (raw) cal = sanitise({ ...DEFAULTS, ...JSON.parse(raw), verified: false });
+  if (raw) {
+    // v2 profiles are only marked verified by the explicit confirm button.
+    cal = sanitise({ ...DEFAULTS, ...JSON.parse(raw) });
+  } else {
+    // v1 profiles were marked verified by moving any slider. Keep values, require one confirmation.
+    const old = localStorage.getItem(OLD_KEY);
+    if (old) cal = sanitise({ ...DEFAULTS, ...JSON.parse(old), verified: false });
+  }
 } catch { /* localStorage ปิดอยู่ ใช้ค่าเริ่มต้นไป */ }
 
 export const get = () => cal;
@@ -62,7 +71,7 @@ export function set(patch) {
 
 export function reset() {
   cal = { ...DEFAULTS };
-  try { localStorage.removeItem(KEY); } catch { }
+  try { localStorage.removeItem(KEY); localStorage.removeItem(OLD_KEY); } catch { }
   return cal;
 }
 

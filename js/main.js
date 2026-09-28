@@ -136,7 +136,7 @@ const repair=async()=>{
   location.reload();
 };
 $('repairBtn').addEventListener('click',()=>repair().catch(e=>{$('offlineStatus').textContent=e.message;}));
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'&&(running||starting||calibMode)){calib.set({verified:false});stop('พักระบบเมื่อสลับแอป จอดและตั้งกล้องก่อนเริ่มใหม่');}});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'&&(running||starting||calibMode)){stop('พักระบบเมื่อสลับแอป กดเริ่มใหม่ได้ทันที (ถ้าขยับแท่นกล้อง ให้จอดแล้วตั้งกล้องใหม่)');}});
 window.addEventListener('pagehide',()=>{if(running||starting||calibMode)stop();if(preparing)offline.cancel().catch(()=>{});});
 health.onChange=()=>render();alerts.onShow=()=>render();
 offline.onUpdate=()=>{$('offlineStatus').textContent='มีรุ่นใหม่ กรุณาปิดแอปทุกหน้าแล้วเปิดอีกครั้งเมื่อจอด';};
