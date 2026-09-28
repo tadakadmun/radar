@@ -328,3 +328,23 @@ button.off { color: var(--dim); }
   border-color: #6b3236;
   color: #ffd7d8;
 }
+
+/* Free edition: controls, readable calibration preview, and explicit offline preparation. */
+[hidden] { display: none !important; }
+a { color: var(--calm); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+.freeTag { display: block; color: var(--dim); font-size: 12px; font-weight: 400; }
+.offlinePanel { padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.offlinePanel h2 { font-size: 16px; margin: 0 0 8px; }
+.offlinePanel p, .offlinePanel details { font-size: 13px; }
+.offlinePanel .hint { color: var(--dim); }
+.offlinePanel button + button { margin-top: 8px; }
+.offlinePanel details { margin-top: 12px; }
+.offlinePanel summary { cursor: pointer; }
+.calib { background: var(--bg); padding-top: max(14px, env(safe-area-inset-top)); }
+#calibPreview { position: sticky; top: 0; z-index: 2; background: var(--bg); margin-bottom: 12px; }
+#calibPreview .view { max-height: 34dvh; width: 100%; }
+#calibStatus { color: var(--warn); }
+#calibCancel { margin-top: 8px; }
+.hud { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+@media (orientation: landscape) { #calibPreview { position: relative; } #calibPreview .view { max-height: 55dvh; } }

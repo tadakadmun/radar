@@ -2,271 +2,78 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0e11">
-<meta name="description" content="ระบบช่วยเตือนขณะขับรถ ทำงานในเครื่อง ไม่มีค่าใช้จ่าย">
-<title>ผู้ช่วยเตือนขณะขับ</title>
+<meta name="description" content="ผู้ช่วยเตือนขณะขับแบบทดลอง ประมวลผลในเครื่อง ไม่มีค่าสมาชิกหรือค่า API">
+<title>ผู้ช่วยเตือนขณะขับ — รุ่นใช้ฟรี</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-
 <div id="bootError" class="bootError" hidden>
-  <h2>เปิดระบบไม่ได้</h2>
-  <p id="bootReason"></p>
-  <ul id="bootFixes"></ul>
-  <pre id="bootDetail" hidden></pre>
-  <button id="bootReset" type="button">ล้างแคชแล้วโหลดใหม่</button>
+<h2>เปิดระบบไม่ได้</h2><p id="bootReason"></p><pre id="bootDetail" hidden></pre>
+<button id="bootReset" type="button">ซ่อมไฟล์แอปแล้วโหลดใหม่</button>
 </div>
-
 <main class="hud">
-
-  <header class="head">
-    <h1>ผู้ช่วยเตือนขณะขับ</h1>
-    <p class="sys">
-      <span id="sysState" data-state="off">ปิดอยู่</span>
-      <span id="sysDetail"></span>
-    </p>
-  </header>
-
-  <section class="view">
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="overlay"></canvas>
-  </section>
-
-  <!-- แถบเดียวกลางจอ: คำเตือนที่สำคัญที่สุดขณะนั้นเรื่องเดียว -->
-  <section id="band" class="band" data-tone="idle" role="status" aria-live="assertive">
-    <strong id="bandText">ระบบยังไม่เริ่มทำงาน</strong>
-    <span id="bandSub">ติดตั้งโทรศัพท์ให้มั่นคงก่อนออกรถ</span>
-  </section>
-
-  <section class="gauges">
-    <div class="gauge">
-      <b id="speed">––</b>
-      <span id="speedUnit">รอสัญญาณ</span>
-    </div>
-    <div class="gauge limit">
-      <b id="limit" class="none">–</b>
-      <span>จำกัด</span>
-    </div>
-    <div class="gauge lane">
-      <div id="laneMark" class="laneMark" data-state="none"><i></i></div>
-      <span id="laneNote">ยังไม่เห็นเส้นเลนชัดพอ</span>
-    </div>
-  </section>
-
-  <p id="lockNote" class="lockNote" hidden>ปุ่มถูกปิดขณะรถเคลื่อนที่ จอดก่อนจึงจะตั้งค่าได้</p>
-
-  <section id="controls" class="controls">
-    <button id="startBtn" class="go">เริ่มระบบช่วยเตือน</button>
-    <div class="row">
-      <button id="soundBtn">เสียงเตือน เปิด</button>
-      <button id="calibBtn">ตั้งค่า</button>
-    </div>
-  </section>
-
-  <section class="fineprint">
-    <p><strong>ระบบนี้ไม่ได้ขับรถแทนคุณ</strong> เป็นเพียงตัวช่วยเตือนที่อาจพลาดหรือเตือนผิดได้ ผู้ขับต้องมองถนนและควบคุมรถเองตลอดเวลา</p>
-    <p>ประมวลผลภาพทั้งหมดในเครื่อง ไม่มีการส่งภาพออกไปที่ใด ข้อมูลถนนดึงจาก OpenStreetMap เมื่อมีอินเทอร์เน็ต</p>
-    <p>ติดตั้งโทรศัพท์บนแท่นยึดที่มั่นคงและไม่บังการมองเห็น การถือโทรศัพท์ขณะขับผิดกฎหมาย</p>
-  </section>
-
+<header class="head"><h1>ผู้ช่วยเตือนขณะขับ <span class="freeTag">ใช้ฟรี • ประมวลผลในเครื่อง</span></h1>
+<p class="sys"><span id="sysState" data-state="off">ปิดอยู่</span><span id="sysDetail"></span></p></header>
+<section class="view"><video id="video" autoplay playsinline muted aria-label="ภาพจากกล้องหลัง"></video><canvas id="overlay" aria-hidden="true"></canvas></section>
+<section id="band" class="band" data-tone="idle" role="status" aria-live="polite"><strong id="bandText">ระบบยังไม่เริ่มทำงาน</strong><span id="bandSub">จอดรถก่อนตั้งค่าและเริ่มใช้งาน</span></section>
+<section class="gauges">
+<div class="gauge"><b id="speed">––</b><span id="speedUnit">รอสัญญาณ</span></div>
+<div class="gauge limit"><b id="limit" class="none">–</b><span>จำกัดจากแผนที่</span></div>
+<div class="gauge lane"><div id="laneMark" class="laneMark" data-state="none"><i></i></div><span id="laneNote">ยังไม่เห็นเส้นเลนชัดพอ</span></div>
+</section>
+<p id="lockNote" class="lockNote" hidden>ล็อกการตั้งค่าขณะรถเคลื่อนที่ ปุ่มหยุดและปิดเสียงยังใช้ได้</p>
+<section id="controls" class="controls">
+<button id="startBtn" class="go" type="button">เริ่มระบบช่วยเตือน</button>
+<div class="row"><button id="soundBtn" type="button">เสียงเตือน เปิด</button><button id="calibBtn" type="button">ตั้งกล้อง / ข้อมูลถนน</button></div>
+</section>
+<section class="offlinePanel">
+<h2>เตรียมใช้ออฟไลน์</h2>
+<p id="offlineStatus" role="status">กำลังตรวจไฟล์ในเครื่อง…</p>
+<p class="hint">ดาวน์โหลด AI ฟรีประมาณ 27 MB ครั้งแรกผ่าน Wi-Fi ที่มีอยู่ ไม่มีค่าสมาชิก ไม่มีค่า API และไม่ต้องผูกบัตร หากใช้เน็ตมือถือจะใช้ข้อมูลตามแพ็กเกจของคุณ</p>
+<button id="prepareBtn" type="button">เตรียม AI ฟรีผ่าน Wi-Fi</button>
+<button id="cancelDownloadBtn" type="button" hidden>ยกเลิกดาวน์โหลด</button>
+<details><summary>กรณีไฟล์แอปไม่ครบหรืออัปเดตไม่ได้</summary><p>เชื่อมต่อ Wi-Fi ก่อนกดซ่อม ปุ่มนี้ล้างเฉพาะไฟล์หน้าแอปนี้และเก็บโมเดล AI ที่ดาวน์โหลดแล้วไว้</p><button id="repairBtn" type="button">ซ่อมไฟล์แอป</button></details>
+</section>
+<section class="fineprint">
+<p><strong>ระบบทดลองช่วยเตือน อาจพลาดหรือเตือนผิดได้</strong> ผู้ขับต้องมองถนนและควบคุมรถเองตลอดเวลา ติดตั้งโทรศัพท์ให้มั่นคงและไม่บังการมองเห็น</p>
+<p>ภาพประมวลผลในเครื่อง การเตือนชนใช้การเปลี่ยนขนาดวัตถุในภาพและยังไม่ผ่านการรับรองความปลอดภัย ต้องตั้งกล้องใหม่เมื่อย้ายแท่นหรือเปลี่ยนมุม</p>
+<p>ข้อมูลถนนออนไลน์ปิดไว้เป็นค่าเริ่มต้น หากเปิดจะส่งพื้นที่ตำแหน่งโดยประมาณไปขอข้อมูลถนน ใช้ป้ายและสภาพถนนจริงเป็นหลัก</p>
+<p>ข้อมูลถนน: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a> · AI: Google MediaPipe / EfficientDet-Lite · รุ่นฟรี 2026-09-27</p>
+</section>
 </main>
-
-<!-- หน้าปรับตั้งกล้อง เปิดได้เฉพาะตอนจอด -->
-<div id="calibPanel" class="calib" hidden>
-  <div class="calibInner">
-    <h2 class="sect">ตั้งค่ากล้อง</h2>
-    <p>จอดรถในเลนตรง แล้วเลื่อนให้เส้นฟ้าทับขอบเลนซ้ายขวา เส้นประทับเส้นขอบฟ้า และเส้นเหลืองตรงกับกึ่งกลางฝากระโปรง ยิ่งตรงยิ่งวัดการเบี่ยงออกนอกเลนได้แม่น</p>
-
-    <label>เส้นขอบฟ้า <output id="calv_horizonY"></output>
-      <input id="cal_horizonY" type="range" min="0.30" max="0.70" step="0.005"></label>
-    <label>ขอบเลนซ้าย (ใกล้) <output id="calv_bottomLeft"></output>
-      <input id="cal_bottomLeft" type="range" min="0.00" max="0.45" step="0.005"></label>
-    <label>ขอบเลนขวา (ใกล้) <output id="calv_bottomRight"></output>
-      <input id="cal_bottomRight" type="range" min="0.55" max="1.00" step="0.005"></label>
-    <label>ขอบเลนซ้าย (ไกล) <output id="calv_topLeft"></output>
-      <input id="cal_topLeft" type="range" min="0.25" max="0.49" step="0.005"></label>
-    <label>ขอบเลนขวา (ไกล) <output id="calv_topRight"></output>
-      <input id="cal_topRight" type="range" min="0.51" max="0.75" step="0.005"></label>
-    <label>กึ่งกลางรถ <output id="calv_egoX"></output>
-      <input id="cal_egoX" type="range" min="0.20" max="0.80" step="0.005"></label>
-    <label>ความกว้างเลน (เมตร) <output id="calv_laneWidthM"></output>
-      <input id="cal_laneWidthM" type="range" min="2.8" max="4.0" step="0.05"></label>
-
-    <h2 class="sect">ข้อมูลถนนและค่าเน็ต</h2>
-    <p class="hint">ข้อมูลถนนจาก OpenStreetMap ใช้ฟรีและไม่ต้องมีบัญชี แต่กินเน็ตมือถือซึ่งมีค่าใช้จ่าย
-      เส้นทางที่ขับซ้ำจะถูกเก็บไว้ในเครื่องและไม่โหลดอีก ปิดทิ้งไปเลยก็ได้ —
-      การเตือนชนท้ายและออกนอกเลนยังทำงานครบ</p>
-
-    <label class="check">
-      <input id="osmEnabled" type="checkbox">
-      ใช้ข้อมูลถนน (ความเร็วจำกัดและโค้งข้างหน้า)
-    </label>
-
-    <label>เพดานข้อมูลต่อการใช้งานหนึ่งครั้ง <output id="osmBudgetVal"></output> MB
-      <input id="osmBudget" type="range" min="5" max="100" step="5"></label>
-
-    <p class="hint" id="osmUsage"></p>
-
-    <div class="row">
-      <button id="osmClear">ล้างข้อมูลถนนที่เก็บไว้</button>
-      <button id="calibReset">คืนค่ากล้องเริ่มต้น</button>
-    </div>
-    <button id="calibDone" class="go">เสร็จแล้ว</button>
-  </div>
-</div>
-
+<div id="calibPanel" class="calib" hidden role="dialog" aria-modal="true" aria-labelledby="calibTitle">
+<div class="calibInner">
+<h2 id="calibTitle">ตั้งกล้องขณะจอดรถ</h2><p>จอดในพื้นที่ปลอดภัยที่เห็นเลนตรง จัดเส้นฟ้าทับขอบเลน เส้นประทับขอบฟ้า และเส้นเหลืองตรงแนวกึ่งกลางรถ ภาพนี้ใช้ปรับเทียบเท่านั้น</p>
+<div id="calibPreview"></div><p id="calibStatus" role="status">ปรับค่าแล้วกด “ยืนยันการตั้งกล้อง” เมื่อเส้นตรงกับถนน</p>
+<label>เส้นขอบฟ้า <output id="calv_horizonY"></output><input id="cal_horizonY" type="range" min=".30" max=".70" step=".005"></label>
+<label>ขอบเลนซ้าย (ใกล้) <output id="calv_bottomLeft"></output><input id="cal_bottomLeft" type="range" min="0" max=".45" step=".005"></label>
+<label>ขอบเลนขวา (ใกล้) <output id="calv_bottomRight"></output><input id="cal_bottomRight" type="range" min=".55" max="1" step=".005"></label>
+<label>ขอบเลนซ้าย (ไกล) <output id="calv_topLeft"></output><input id="cal_topLeft" type="range" min=".25" max=".49" step=".005"></label>
+<label>ขอบเลนขวา (ไกล) <output id="calv_topRight"></output><input id="cal_topRight" type="range" min=".51" max=".75" step=".005"></label>
+<label>แนวกึ่งกลางรถ <output id="calv_egoX"></output><input id="cal_egoX" type="range" min=".2" max=".8" step=".005"></label>
+<label>ความกว้างเลนจริง (เมตร) <output id="calv_laneWidthM"></output><input id="cal_laneWidthM" type="range" min="2.8" max="4" step=".05"></label>
+<label>ความสูงกล้องจากพื้นถนน (เมตร) <output id="calv_cameraHeightM"></output><input id="cal_cameraHeightM" type="range" min=".4" max="2.8" step=".05"></label>
+<h2 class="sect">ข้อมูลถนนออนไลน์ — เปิดเฉพาะเมื่อยอมรับการใช้เน็ต</h2>
+<p class="hint">เปิดแล้วจะขอข้อมูลถนนจาก Overpass โดยส่งกรอบพื้นที่ตำแหน่งรถ ข้อมูลอาจไม่ครบหรือคลาดเคลื่อน ปิดไว้เพื่อไม่ใช้เน็ตกับข้อมูลถนน การเตือนจากภาพยังใช้ได้เมื่อเตรียม AI และตั้งกล้องครบ</p>
+<label class="check"><input id="osmEnabled" type="checkbox">อนุญาตส่งพื้นที่ตำแหน่งและใช้เน็ตเพื่อข้อมูลถนน</label>
+<label>งบเนื้อหาข้อมูลถนนต่อรอบ <output id="osmBudgetVal"></output> MB<input id="osmBudget" type="range" min="5" max="100" step="5"></label>
+<p class="hint">เป็นงบโดยประมาณ ไม่ใช่เพดานค่าเน็ตของผู้ให้บริการ อาจมีข้อมูลที่รับมาแล้วหรือส่วนเกินของเครือข่าย</p><p id="osmUsage" class="hint"></p>
+<div class="row"><button id="osmClear" type="button">ล้างข้อมูลถนน</button><button id="calibReset" type="button">คืนค่ากล้อง</button></div>
+<button id="calibDone" class="go" type="button">ยืนยันการตั้งกล้อง</button><button id="calibCancel" type="button">ปิดหน้าตั้งค่า</button>
+</div></div>
 <script>
-/* ตัวตรวจการเปิดใช้งาน — เขียนเป็นสคริปต์ธรรมดาโดยตั้งใจ ไม่ใช่ ES module
-   ถ้าโปรแกรมหลัก (js/main.js) โหลดไม่ขึ้น จอจะว่างเปล่าโดยไม่บอกอะไรเลย
-   ซึ่งเป็นอาการที่ผู้ใช้แก้เองไม่ได้ ตัวนี้จึงต้องทำงานได้อิสระจากโมดูลหลักเสมอ
-   และต้อง "ไปถามเซิร์ฟเวอร์จริง" แทนการเดา เพราะสาเหตุที่พบบ่อยที่สุดคือ
-   โฮสต์บางเจ้าตั้งค่าให้ทุกเส้นทางที่หาไม่เจอวกกลับไปที่ index.html (SPA fallback)
-   หรือส่ง .js กลับมาเป็นชนิดไฟล์ผิด ซึ่งเบราว์เซอร์จะปฏิเสธการรันโมดูลนั้นทันที
-   โดยรายงานผ่าน window แค่ข้อความกำกวมว่า "Script error." เท่านั้น */
-(function () {
-  var shown = false, sawScriptFailure = false, lastError = null;
-  function el(id) { return document.getElementById(id); }
-
-  function report(reason, fixes, detail) {
-    if (shown) return;
-    shown = true;
-    el('bootReason').textContent = reason;
-    var ul = el('bootFixes');
-    ul.innerHTML = '';
-    (fixes || []).forEach(function (f) {
-      var li = document.createElement('li');
-      li.textContent = f;
-      ul.appendChild(li);
-    });
-    if (detail) {
-      el('bootDetail').textContent = detail;
-      el('bootDetail').hidden = false;
-    }
-    el('bootError').hidden = false;
-  }
-
-  /* ล้าง Service Worker และแคชทั้งหมดแล้วโหลดใหม่ — ปุ่มกู้สถานการณ์กรณีรุ่นเก่าค้างอยู่ */
-  el('bootReset').addEventListener('click', function () {
-    var jobs = [];
-    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-      jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
-        return Promise.all(rs.map(function (r) { return r.unregister(); }));
-      }));
-    }
-    if (window.caches && caches.keys) {
-      jobs.push(caches.keys().then(function (ks) {
-        return Promise.all(ks.map(function (k) { return caches.delete(k); }));
-      }));
-    }
-    Promise.all(jobs).catch(function () { }).then(function () { location.reload(); });
-  });
-
-  if (location.protocol === 'file:') {
-    report('หน้านี้ถูกเปิดจากไฟล์ในเครื่องโดยตรง เบราว์เซอร์จึงบล็อกทั้งการโหลดโมดูลและการใช้กล้อง', [
-      'เปิดไฟล์ index.html ตรงๆ ใช้ไม่ได้ ต้องเปิดผ่านเว็บเซิร์ฟเวอร์เท่านั้น',
-      'วิธีฟรีที่ง่ายสุด: อัปโหลดขึ้น GitHub แล้วเปิด Settings \u2192 Pages จะได้ลิงก์ https',
-      'ทดสอบในเครื่อง: พิมพ์  python3 -m http.server 8080  ในโฟลเดอร์นี้ แล้วเข้า http://localhost:8080'
-    ]);
-    return;
-  }
-
-  if (!window.isSecureContext) {
-    report('หน้านี้ไม่ได้เปิดผ่าน HTTPS เบราว์เซอร์จึงไม่อนุญาตให้ใช้กล้องและ GPS', [
-      'เปิดผ่านที่อยู่ที่ขึ้นต้นด้วย https:// หรือ http://localhost เท่านั้น'
-    ]);
-    return;
-  }
-
-  // จับข้อผิดพลาดของสคริปต์และไฟล์ที่โหลดไม่สำเร็จ (capture phase เพราะ error ของ <script> ไม่ bubble)
-  // สำคัญ: ข้อผิดพลาดของ module script มักมาในรูป "Script error." ที่ไม่มีรายละเอียดใดๆ เลย
-  // (เบราว์เซอร์ซ่อนรายละเอียดไว้ด้วยเหตุผลด้านความปลอดภัย) รุ่นก่อนหน้าทิ้งข้อความนี้ไปเฉยๆ
-  // ทำให้ตกไปที่ข้อความกำกวมที่สุด จึงต้องนับว่านี่คือสัญญาณว่าบางอย่างพังจริง แล้วสืบต่อด้วย fetch()
-  window.addEventListener('error', function (e) {
-    if (window.__navAssistBooted) return;
-    sawScriptFailure = true;
-    if (e.target && e.target.tagName === 'SCRIPT') {
-      lastError = 'โหลดไฟล์ไม่สำเร็จ: ' + (e.target.src || '(ไม่ทราบ)');
-    } else if (e.message && e.message.indexOf('Script error') !== 0) {
-      lastError = e.message + (e.filename ? '\n' + e.filename + ':' + e.lineno : '');
-    }
-  }, true);
-
-  /* ไปถามเซิร์ฟเวอร์ตรงๆ ว่าไฟล์โปรแกรมหลักตอบกลับมาแบบไหน
-     คำตอบนี้ชี้สาเหตุได้แม่นกว่าการเดาจาก error event มาก */
-  function probeServer(then) {
-    fetch('./js/main.js', { cache: 'no-store' }).then(function (res) {
-      var ct = (res.headers.get('content-type') || '').toLowerCase();
-      then({ ok: res.ok, status: res.status, contentType: ct || '(เซิร์ฟเวอร์ไม่ระบุ)' });
-    }).catch(function (err) {
-      then({ ok: false, status: 0, contentType: '', networkError: err.message });
-    });
-  }
-
-  setTimeout(function () {
-    if (window.__navAssistBooted) return;
-
-    probeServer(function (r) {
-      if (window.__navAssistBooted) return;
-
-      if (r.networkError) {
-        report('ติดต่อเซิร์ฟเวอร์เพื่อขอไฟล์โปรแกรมไม่ได้', [
-          'ตรวจการเชื่อมต่ออินเทอร์เน็ต',
-          'ลองกดปุ่มล้างแคชด้านล่าง'
-        ], 'fetch ./js/main.js ล้มเหลว: ' + r.networkError);
-        return;
-      }
-
-      if (r.status === 404) {
-        report('หาไฟล์ js/main.js ไม่เจอบนเซิร์ฟเวอร์ที่ใช้อยู่', [
-          'ตรวจว่าอัปโหลดโฟลเดอร์ js/ ทั้งโฟลเดอร์ขึ้นไปด้วย ไม่ใช่แค่ index.html',
-          'โฮสต์บางเจ้าลบโฟลเดอร์ย่อยหรือเปลี่ยนตัวพิมพ์เล็ก-ใหญ่ของชื่อไฟล์ ให้ตรวจชื่อไฟล์ให้ตรงเป๊ะ',
-          'ถ้าไม่แน่ใจว่าโฮสต์ไหนใช้ได้ ลองอัปขึ้น GitHub Pages ซึ่งทดสอบมาแล้วว่าใช้ได้'
-        ], 'HTTP ' + r.status + ' เมื่อขอ ./js/main.js');
-        return;
-      }
-
-      if (!r.ok) {
-        report('เซิร์ฟเวอร์ตอบกลับผิดพลาดเมื่อขอไฟล์โปรแกรม', [
-          'ลองกดปุ่มล้างแคชด้านล่าง',
-          'ถ้ายังไม่หาย อาจเป็นปัญหาฝั่งเซิร์ฟเวอร์ที่ใช้โฮสต์อยู่ ลองเปลี่ยนไปใช้ GitHub Pages'
-        ], 'HTTP ' + r.status + ' เมื่อขอ ./js/main.js');
-        return;
-      }
-
-      if (r.contentType.indexOf('javascript') === -1) {
-        report('เซิร์ฟเวอร์ส่งไฟล์ js/main.js กลับมาเป็นชนิดไฟล์ที่ผิด เบราว์เซอร์จึงปฏิเสธไม่ยอมรัน', [
-          'โฮสต์ที่ใช้อยู่อาจตั้งค่าให้ทุกเส้นทางที่หาไม่เจอวกกลับไปที่ index.html (SPA fallback) ซึ่งทำให้ไฟล์ .js กลายเป็น HTML',
-          'ต้องปิดการตั้งค่านั้น หรือเปลี่ยนไปใช้โฮสต์ไฟล์สถิตทั่วไปแทน เช่น GitHub Pages ซึ่งทดสอบมาแล้วว่าใช้ได้',
-          'ทดสอบว่าเป็นปัญหาโฮสต์จริงไหม: พิมพ์ python3 -m http.server 8080 ในเครื่อง แล้วเข้า http://localhost:8080 — ถ้าใช้ได้ปกติ แปลว่าโค้ดไม่มีปัญหา ต้องแก้ที่โฮสต์'
-        ], 'HTTP ' + r.status + ', Content-Type: ' + r.contentType);
-        return;
-      }
-
-      // ไฟล์โหลดได้ถูกต้องทุกอย่าง แต่ยังไม่ทำงาน — ตอนนี้น่าจะเป็นข้อผิดพลาดในตัวโค้ดเองแล้ว
-      var detail = lastError ? 'ข้อผิดพลาดที่พบ:\n' + lastError : '';
-      if (sawScriptFailure) {
-        report('โปรแกรมโหลดไฟล์ได้ครบแต่ทำงานไม่สำเร็จ', [
-          'ลองกดปุ่มล้างแคชด้านล่าง',
-          'เปิด Developer Tools ดูข้อความในแท็บ Console แล้วส่งข้อความนั้นไปให้ผู้พัฒนา'
-        ], detail);
-      } else {
-        report('โปรแกรมหลักไม่เริ่มทำงานภายในเวลาที่ควรจะเป็น ทั้งที่โหลดไฟล์ได้ปกติ', [
-          'ลองกดปุ่มล้างแคชด้านล่าง — สาเหตุที่พบบ่อยคือรุ่นเก่าค้างอยู่ในเครื่อง',
-          'เบราว์เซอร์อาจเก่าเกินไป ต้องรองรับ ES module (Chrome, Edge, Safari รุ่นใหม่)',
-          'เปิด Developer Tools ดูข้อความในแท็บ Console'
-        ]);
-      }
-    });
-  }, 6000);
+(function(){
+ function show(msg,detail){document.getElementById('bootReason').textContent=msg;document.getElementById('bootError').hidden=false;if(detail){document.getElementById('bootDetail').textContent=detail;document.getElementById('bootDetail').hidden=false;}}
+ document.getElementById('bootReset').addEventListener('click',async function(){try{var scope=new URL('./',location.href).href;if(navigator.serviceWorker){for(var r of await navigator.serviceWorker.getRegistrations())if(r.scope===scope)await r.unregister();}if(window.caches){for(var k of await caches.keys())if(k.startsWith('navassist-shell-')||/^navassist-v\d+$/.test(k))await caches.delete(k);}location.reload();}catch(e){show('ซ่อมไม่สำเร็จ',String(e));}});
+ if(location.protocol==='file:'){show('ต้องเปิดผ่านเว็บ HTTPS หรือเว็บเซิร์ฟเวอร์ในเครื่อง Windows ใช้ py -m http.server 8080 แล้วเปิด http://localhost:8080');return;}
+ if(!window.isSecureContext){show('ต้องเปิดผ่าน HTTPS หรือ localhost เพื่อใช้กล้อง');return;}
+ var detail='';window.addEventListener('error',function(e){if(!window.__navAssistBooted)detail=e.message||'โหลดสคริปต์ไม่สำเร็จ';},true);
+ setTimeout(function(){if(!window.__navAssistBooted)show('โปรแกรมหลักยังไม่พร้อม ตรวจชื่อและตำแหน่งไฟล์ index.html, style.css และโฟลเดอร์ js ให้ครบ หากกำลังโหลดช้าให้รออีกสักครู่',detail);},10000);
 })();
 </script>
-
-<!-- ไลบรารีตรวจจับ (MediaPipe Tasks Vision) ถูกโหลดแบบ dynamic import ใน js/detector.js
-     ตอนผู้ใช้กดเริ่มระบบ จึงไม่ต้องมี <script> ของไลบรารีตรงนี้
-     ข้อดีคือเปิดหน้าเว็บครั้งแรกเบากว่ามาก และหน้าจอขึ้นได้ทันทีแม้ยังไม่มีเน็ต -->
 <script type="module" src="./js/main.js"></script>
-</body>
-</html>
+</body></html>
