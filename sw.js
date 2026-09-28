@@ -1,5 +1,5 @@
 /* Free offline assets. App updates wait until old app windows close. */
-const SHELL_CACHE='navassist-shell-free-20260927-r1';
+const SHELL_CACHE='navassist-shell-free-20260928-r2';
 const AI_CACHE='navassist-ai-v1';
 const BASE=new URL('./',self.location.href);
 const CORE=[ './','./index.html','./style.css','./manifest.json',
@@ -59,6 +59,13 @@ self.addEventListener('fetch',event=>{
   if(!ALL_URLS.has(canonical)&&req.mode!=='navigate')return;
   event.respondWith((async()=>{
     const cache=await caches.open(SHELL_CACHE),key=req.mode==='navigate'?new URL('index.html',BASE).href:canonical;
+    // Network-first for app files (3 s limit), so a single re-uploaded file takes effect
+    // on the next page open even if sw.js was not changed. Offline or slow: use the cache.
+    // Files load only when the page opens, so a running drive never mixes versions.
+    try{
+      const fresh=await getNetwork(key,AbortSignal.timeout(3000));
+      await cache.put(key,fresh.clone());return fresh;
+    }catch{}
     const hit=await cache.match(key);
     return valid(hit,key)?hit:new Response('ไฟล์แอปไม่ครบ โปรดเชื่อมต่อ Wi-Fi แล้วซ่อมไฟล์แอป',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});
   })());
