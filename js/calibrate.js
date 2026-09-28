@@ -2,7 +2,7 @@
  *
  * ทุกค่าเป็นสัดส่วน 0..1 ของเฟรม จึงไม่ผูกกับความละเอียดกล้อง
  * ค่าเริ่มต้นตั้งจากการติดโทรศัพท์แนวตั้งกลางกระจกหน้า สูงประมาณ 1.2 ม.
- * ถ้าไม่ปรับ ระบบยังทำงานได้แต่จะลดความเชื่อมั่นของเลนลง
+ * ต้องยืนยันภาพและแนวกล้องก่อนเปิดการเตือนจากภาพในแต่ละการเปิดหน้าเว็บ
  */
 
 const KEY = 'navassist.calib.v1';
@@ -15,23 +15,47 @@ export const DEFAULTS = {
   topLeft: 0.415,     // ขอบเลนซ้ายที่แถวนั้น
   topRight: 0.585,    // ขอบเลนขวาที่แถวนั้น
   egoX: 0.50,         // แนวกลางรถในเฟรม (กล้องไม่ได้อยู่กลางรถเสมอ)
-  laneWidthM: 3.4,    // ความกว้างเลนมาตรฐานถนนไทย (ม.)
+  laneWidthM: 3.4,    // ค่าความกว้างเลนเริ่มต้น ต้องปรับตามถนน (ม.)
   cameraHeightM: 1.20,
   corridorMarginM: 0.55,  // เผื่อรถที่ล้ำเข้ามาในเลนบางส่วน
   verified: false,    // ผู้ใช้ยืนยันด้วยตาแล้วหรือยัง
+  frameAspect: null,
 };
 
 let cal = { ...DEFAULTS };
 
 try {
   const raw = localStorage.getItem(KEY);
-  if (raw) cal = { ...DEFAULTS, ...JSON.parse(raw) };
+  // Old profiles were marked verified by moving any slider. Require confirmation again.
+  if (raw) cal = sanitise({ ...DEFAULTS, ...JSON.parse(raw), verified: false });
 } catch { /* localStorage ปิดอยู่ ใช้ค่าเริ่มต้นไป */ }
 
 export const get = () => cal;
 
+function sanitise(value) {
+  const bounds = { horizonY: [.3,.7], bottomLeft: [0,.45], bottomRight: [.55,1],
+    topLeft: [.25,.49], topRight: [.51,.75], egoX: [.2,.8], laneWidthM: [2.8,4],
+    cameraHeightM: [.4,2.8], nearHorizon: [.04,.15], corridorMarginM: [0,.55] };
+  const out = { ...DEFAULTS, ...value };
+  for (const [k, [lo,hi]] of Object.entries(bounds)) {
+    out[k] = Number.isFinite(out[k]) ? Math.min(hi, Math.max(lo, out[k])) : DEFAULTS[k];
+  }
+  out.verified = out.verified === true;
+  out.frameAspect = Number.isFinite(out.frameAspect) ? out.frameAspect : null;
+  return out;
+}
+
+export function isVerified(w, h) {
+  return cal.verified && w > 0 && h > 0 && cal.frameAspect != null && Math.abs(w / h - cal.frameAspect) < .03;
+}
+
+export function confirm(w, h) {
+  if (!(w > 0 && h > 0)) throw new Error('ต้องเห็นภาพกล้องก่อนยืนยัน');
+  return set({ verified: true, frameAspect: w / h });
+}
+
 export function set(patch) {
-  cal = { ...cal, ...patch };
+  cal = sanitise({ ...cal, ...patch });
   try { localStorage.setItem(KEY, JSON.stringify(cal)); } catch { }
   return cal;
 }

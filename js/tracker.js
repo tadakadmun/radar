@@ -6,11 +6,10 @@
  *   ถ้าเข้าใกล้ด้วยความเร็วคงที่ Z = Z₀ − v·t  ดังนั้น 1/w เป็นเส้นตรงในเวลา
  *   ฟิตเส้นตรงกับ (t, 1/w) ได้ความชัน m และค่าปัจจุบัน q  →  TTC = −q / m
  *
- * วิธีนี้คือหลักการเดียวกับระบบเตือนชนท้ายในรถจริง และทนต่อการไม่ได้ calibrate
+ * เป็นเพียงค่าประมาณภายใต้สมมติฐานข้างต้น ยังไม่ผ่านการรับรองสำหรับการขับขี่จริง
  */
 
 import { clamp, ema, median, linRegress } from './util.js';
-import { CLASS_HEIGHT_M } from './detector.js';
 import { inCorridor } from './calibrate.js';
 
 const IOU_MATCH = 0.22;
@@ -50,6 +49,7 @@ class Track {
   }
 
   update(det, t) {
+    if (t - this.lastSeen > 650) { this.ts = []; this.invW = []; this.hits = 0; }
     // ปรับ bbox แบบถ่วงน้ำหนัก ลดการกระตุกของกรอบระหว่างเฟรม
     const a = 0.55;
     for (let i = 0; i < 4; i++) this.bbox[i] = ema(this.bbox[i], det.bbox[i], a);
@@ -68,6 +68,7 @@ class Track {
   computeTTC(now) {
     this.ttc = null;
     this.ttcQuality = 0;
+    if (now - this.lastSeen > 650) return;
     if (this.ts.length < 4) return;
     const span = this.ts[this.ts.length - 1] - this.ts[0];
     if (span < MIN_TTC_SPAN_MS) return;
@@ -142,15 +143,15 @@ export class Tracker {
     for (const tr of this.tracks) {
       tr.computeTTC(t);
       const [x, y, w, h] = tr.bbox;
-      const H = CLASS_HEIGHT_M[tr.cls];
-      tr.distanceM = (H && geom.focalPx && h > 2) ? (H * geom.focalPx) / h : null;
+      // No metric-distance claim without measured camera intrinsics and object size.
+      tr.distanceM = null;
       tr.inPath = inCorridor(geom.corridor, x + w / 2, y + h);
     }
 
     return this.tracks.filter(tr => tr.confirmed && tr.misses === 0);
   }
 
-  reset() { this.tracks = []; }
+  reset() { this.tracks = []; this.egoDx = 0; sustainCount.clear(); }
 }
 
 /* ---------- ตรรกะการเตือนชนท้าย ---------- */

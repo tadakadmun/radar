@@ -213,7 +213,8 @@ export class LaneFinder {
     st.offset = ema(st.offset, clamp(offsetNow, -2, 2), SMOOTH);
     st.curve = ema(st.curve, curveNow, SMOOTH);
 
-    const fitQ = ((fL?.r2 || 0) + (fR?.r2 || 0)) / 2;
+    // Residual error works for straight vertical lines too (R² alone does not).
+    const fitQ = fL && fR ? clamp(1 - (fL.rmse + fR.rmse) / (EXPECT_W * .15), 0, 1) : 0;
     const covQ = clamp((st.covL + st.covR) / 1.3, 0, 1);
     const widthQ = laneOk ? clamp(1 - Math.abs(widthPx - EXPECT_W) / EXPECT_W, 0, 1) : 0;
     const confNow = laneOk ? (0.45 * fitQ + 0.35 * covQ + 0.20 * widthQ) : 0.25 * covQ;
@@ -308,7 +309,8 @@ export class LaneFinder {
   }
 
   reset() {
-    this.st.offset = 0; this.st.curve = 0; this.st.conf = 0;
+    this.st = { offset: 0, curve: 0, conf: 0, doubleY: 0, covL: 0, covR: 0,
+      voteL: {white:0,yellow:0,red:0}, voteR: {white:0,yellow:0,red:0} };
     this.hits = [];
   }
 }
@@ -324,6 +326,7 @@ const LDW = {
 };
 
 const ldwState = { side: null, since: 0, lastFired: 0 };
+export function resetDeparture() { ldwState.side = null; ldwState.since = 0; ldwState.lastFired = 0; }
 
 /**
  * @returns {{fire: boolean, side: 'left'|'right'|null}}

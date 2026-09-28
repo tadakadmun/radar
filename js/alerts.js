@@ -23,6 +23,10 @@ export class Alerts {
     this.current = null;         // { key, level, text, until }
     this.onShow = null;          // callback ให้ UI แสดงผล
     this.speaking = false;
+    this.soundEpoch = 0;
+    this.timers = new Set();
+    this.oscillators = new Set();
+    this.voiceBound = false;
   }
 
   /**
@@ -43,7 +47,7 @@ export class Alerts {
         u.volume = 0;
         speechSynthesis.speak(u);
         this.#pickVoice();
-        speechSynthesis.addEventListener?.('voiceschanged', () => this.#pickVoice());
+        if (!this.voiceBound) { speechSynthesis.addEventListener?.('voiceschanged', () => this.#pickVoice()); this.voiceBound = true; }
       }
     } catch { }
   }
@@ -72,15 +76,16 @@ export class Alerts {
     // คำเตือนที่ระดับต่ำกว่าของที่กำลังแสดงอยู่ ต้องรอ
     if (this.current && this.current.level > level && now < this.current.until) return false;
 
-    const last = this.lastByKey.get(key) || 0;
-    if (now - last < COOLDOWN[level]) {
+    const last = this.lastByKey.get(key);
+    const escalated = !!last && level > last.level;
+    if (last && !escalated && now - last.time < COOLDOWN[level]) {
       // ยังพักอยู่ แต่ถ้าเป็นวิกฤตให้ต่ออายุการแสดงผลไว้
-      if (level === LEVEL.CRITICAL && this.current?.key === key) {
+      if (level === LEVEL.CRITICAL && this.current?.key === key && this.current.level === level) {
         this.current.until = now + 1800;
       }
       return false;
     }
-    this.lastByKey.set(key, now);
+    this.lastByKey.set(key, { time: now, level });
 
     const dur = level === LEVEL.CRITICAL ? 2600 : level === LEVEL.WARN ? 2600 : 3600;
     this.current = { key, level, text, until: now + dur };
@@ -107,7 +112,7 @@ export class Alerts {
     if (!this.voiceReady || !('speechSynthesis' in window)) return;
 
     try {
-      if (level === LEVEL.CRITICAL) speechSynthesis.cancel();
+      if (level === LEVEL.CRITICAL) { this.cancelPendingSpeech(); speechSynthesis.cancel(); }
       else if (this.speaking) return;   // ไม่ตัดคำเตือนที่กำลังพูดอยู่
 
       const u = new SpeechSynthesisUtterance(text);
@@ -118,7 +123,12 @@ export class Alerts {
       u.onstart = () => { this.speaking = true; };
       u.onend = u.onerror = () => { this.speaking = false; };
       // หน่วงเล็กน้อยให้เสียงโทนดังจบก่อน
-      setTimeout(() => speechSynthesis.speak(u), level === LEVEL.CRITICAL ? 260 : 180);
+      const epoch = this.soundEpoch;
+      const timer = setTimeout(() => {
+        this.timers.delete(timer);
+        if (this.enabled && epoch === this.soundEpoch) { try { speechSynthesis.speak(u); } catch {} }
+      }, level === LEVEL.CRITICAL ? 260 : 180);
+      this.timers.add(timer);
     } catch { }
   }
 
@@ -142,6 +152,8 @@ export class Alerts {
         gain.gain.linearRampToValueAtTime(vol, t0 + 0.012);
         gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
         osc.connect(gain).connect(ac.destination);
+        this.oscillators.add(osc);
+        osc.onended = () => { this.oscillators.delete(osc); osc.disconnect(); gain.disconnect(); };
         osc.start(t0);
         osc.stop(t0 + 0.13);
       }
@@ -157,12 +169,21 @@ export class Alerts {
 
   setEnabled(on) {
     this.enabled = on;
-    if (!on) { try { speechSynthesis.cancel(); } catch { } }
+    if (!on) this.cancelAudio();
   }
+
+  cancelPendingSpeech() { this.soundEpoch++; for (const t of this.timers) clearTimeout(t); this.timers.clear(); }
+  cancelAudio() {
+    this.cancelPendingSpeech(); this.speaking = false;
+    try { speechSynthesis.cancel(); navigator.vibrate?.(0); } catch {}
+    for (const osc of this.oscillators) { try { osc.stop(); } catch {} }
+    this.oscillators.clear();
+  }
+  dismiss(keys) { if (this.current && keys.includes(this.current.key)) { this.current = null; this.cancelAudio(); this.onShow?.(null); } }
 
   clear() {
     this.current = null;
     this.lastByKey.clear();
-    try { speechSynthesis.cancel(); } catch { }
+    this.cancelAudio();
   }
 }

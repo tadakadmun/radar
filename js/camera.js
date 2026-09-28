@@ -1,120 +1,67 @@
-/* camera.js — เปิดกล้องหลัง จัดการการหลุด และรายงานสถานะ
- *
- * ขอความละเอียดต่ำโดยตั้งใจ: โมเดลตรวจจับย่อภาพเหลือ 300×300 อยู่แล้ว
- * การขอ 1280×720 มีแต่ทำให้เครื่องร้อนและเฟรมตก โดยไม่ได้ความแม่นเพิ่ม
- */
-
-const PROFILES = [
-  { width: { ideal: 640 }, height: { ideal: 480 } },
-  { width: { ideal: 480 }, height: { ideal: 360 } },
-  {},
-];
-
+/* Camera lifecycle and actual-frame heartbeat. No microphone is requested. */
+const PROFILES = [{width:{ideal:640},height:{ideal:480}}, {width:{ideal:480},height:{ideal:360}}, {}];
 export class Camera {
-  constructor(videoEl) {
-    this.video = videoEl;
-    this.stream = null;
-    this.track = null;
-    this.onLost = null;        // callback เมื่อกล้องถูกยึดหรือหลุด
-    this.lost = false;
-  }
-
-  get ready() {
-    return !!this.stream && this.video.readyState >= 2 &&
-      this.video.videoWidth > 0 && !this.lost;
-  }
-
+  constructor(video) { this.video=video; this.stream=null; this.track=null; this.onLost=null; this.lost=false; this.epoch=0; this.frameId=0; this.lastFrameAt=0; this.callbackId=null; this.poll=null; }
+  get ready() { return !!this.stream && this.track?.readyState==='live' && this.video.readyState>=2 && this.video.videoWidth>0 && !this.lost; }
+  frameAge(now=performance.now()) { return this.lastFrameAt ? now-this.lastFrameAt : Infinity; }
   async open() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('เบราว์เซอร์นี้เปิดกล้องไม่ได้ หรือหน้าเว็บไม่ได้เปิดผ่าน HTTPS');
+    this.close(); const token=this.epoch;
+    if(!navigator.mediaDevices?.getUserMedia) throw new Error('เปิดกล้องไม่ได้ ต้องใช้ HTTPS หรือ localhost');
+    let lastError;
+    try {
+      for(const profile of PROFILES) {
+        try {
+          const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},frameRate:{ideal:24,max:30},...profile},audio:false});
+          if(token!==this.epoch){stream.getTracks().forEach(t=>t.stop());throw new Error('ยกเลิกการเปิดกล้อง');}
+          this.stream=stream;break;
+        } catch(e) { lastError=e; if(token!==this.epoch || e.name==='NotAllowedError') throw e; }
+      }
+      if(!this.stream) throw lastError || new Error('ไม่พบกล้อง');
+      this.track=this.stream.getVideoTracks()[0]; this.lost=false;
+      this.track.addEventListener('ended',()=>{if(token===this.epoch)this.markLost('กล้องถูกปิด');});
+      this.track.addEventListener('mute',()=>{if(token===this.epoch)this.markLost('กล้องหยุดส่งภาพ');});
+      this.track.addEventListener('unmute',()=>{if(token===this.epoch)this.lost=false;});
+      this.video.srcObject=this.stream;
+      const playing=this.video.play();
+      await Promise.all([playing,this.waitForFrames(token)]);
+      if(token!==this.epoch) throw new Error('ยกเลิกการเปิดกล้อง');
+      this.watchFrames(token);
+      return this.settings();
+    } catch(e) {
+      if(token===this.epoch)this.close();
+      if(e.name==='NotAllowedError') throw new Error('ยังไม่ได้อนุญาตกล้อง เปิดสิทธิ์แล้วลองใหม่');
+      throw e;
     }
-    let lastErr = null;
-    for (const p of PROFILES) {
-      try {
-        this.stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, frameRate: { ideal: 30 }, ...p },
-          audio: false,
-        });
-        break;
-      } catch (e) { lastErr = e; }
-    }
-    if (!this.stream) {
-      throw new Error(lastErr?.name === 'NotAllowedError'
-        ? 'ยังไม่ได้อนุญาตให้ใช้กล้อง เปิดสิทธิ์กล้องในเบราว์เซอร์แล้วลองอีกครั้ง'
-        : 'เปิดกล้องไม่สำเร็จ ตรวจว่าไม่มีแอปอื่นใช้กล้องอยู่');
-    }
-
-    this.track = this.stream.getVideoTracks()[0];
-    this.lost = false;
-    this.track.addEventListener('ended', () => this.#markLost('กล้องถูกปิดหรือถูกแอปอื่นยึดไป'));
-    this.track.addEventListener('mute', () => this.#markLost('สัญญาณภาพจากกล้องหยุด'));
-    this.track.addEventListener('unmute', () => { this.lost = false; });
-
-    this.video.srcObject = this.stream;
-
-    // เดิมรอเหตุการณ์ loadedmetadata เพียงอย่างเดียว ซึ่งเป็นการแข่งกันเวลา:
-    // ถ้าวิดีโอมีข้อมูลพร้อมอยู่แล้วก่อนเราผูกตัวรับเหตุการณ์ (เกิดบ่อยบนเครื่องเร็ว
-    // และเวลาเปิดกล้องใหม่หลังสลับแอป) เหตุการณ์นั้นจะไม่เกิดขึ้นอีกเลย
-    // แล้วระบบจะค้างอยู่ที่ "กำลังเตรียม" จนหมดเวลา
-    // จึงต้องเช็คสถานะปัจจุบันก่อน แล้วค่อยรอ พร้อมมีการวนตรวจเป็นตาข่ายรองรับ
-    await this.#waitForFrames();
-    await this.video.play();
-    return this.settings();
   }
-
-  #waitForFrames(timeoutMs = 8000) {
-    const ready = () => this.video.readyState >= 1 && this.video.videoWidth > 0;
-    if (ready()) return Promise.resolve();
-
-    return new Promise((res, rej) => {
-      let done = false;
-      const finish = ok => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        clearInterval(poll);
-        this.video.removeEventListener('loadedmetadata', onMeta);
-        this.video.removeEventListener('canplay', onMeta);
-        ok ? res() : rej(new Error('กล้องไม่ส่งภาพภายในเวลาที่กำหนด ลองปิดแอปอื่นที่ใช้กล้องอยู่'));
-      };
-      const onMeta = () => { if (ready()) finish(true); };
-      const timer = setTimeout(() => finish(false), timeoutMs);
-      const poll = setInterval(onMeta, 100);
-      this.video.addEventListener('loadedmetadata', onMeta);
-      this.video.addEventListener('canplay', onMeta);
-      onMeta();
+  waitForFrames(token) {
+    return new Promise((resolve,reject)=>{
+      const started=performance.now();
+      const timer=setInterval(()=>{
+        if(token!==this.epoch){clearInterval(timer);reject(new Error('ยกเลิกการเปิดกล้อง'));}
+        else if(this.video.readyState>=2 && this.video.videoWidth){clearInterval(timer);resolve();}
+        else if(performance.now()-started>8000){clearInterval(timer);reject(new Error('กล้องไม่ส่งภาพภายใน 8 วินาที'));}
+      },50);
     });
   }
-
-  #markLost(reason) {
-    this.lost = true;
-    this.onLost?.(reason);
-  }
-
-  settings() {
-    try { return this.track?.getSettings?.() || {}; } catch { return {}; }
-  }
-
-  /** มุมรับภาพแนวนอนถ้าอุปกรณ์บอกมา ไม่งั้นคืน null แล้วให้ calibrate เดาเอง */
-  fovDeg() {
-    const s = this.settings();
-    if (s.aspectRatio && s.focalLength && s.width) {
-      const f = s.focalLength;
-      return 2 * Math.atan((s.width / 2) / f) * 180 / Math.PI;
+  watchFrames(token) {
+    this.lastFrameAt=performance.now(); this.frameId=0;
+    if(this.video.requestVideoFrameCallback) {
+      const next=()=>{if(token!==this.epoch)return;this.frameId++;this.lastFrameAt=performance.now();this.callbackId=this.video.requestVideoFrameCallback(next);};
+      this.callbackId=this.video.requestVideoFrameCallback(next);
+    } else {
+      let last=-1;
+      this.poll=setInterval(()=>{if(token!==this.epoch)return;const t=this.video.currentTime;if(t!==last && this.ready){last=t;this.frameId++;this.lastFrameAt=performance.now();}},80);
     }
-    return null;
   }
-
-  /** ปิดไฟฉาย/รีสตาร์ทกล้องหลังหลุด */
-  async reopen() {
-    this.close();
-    return this.open();
-  }
-
-  close() {
-    this.stream?.getTracks().forEach(t => t.stop());
-    this.stream = null;
-    this.track = null;
-    this.video.srcObject = null;
+  markLost(reason){this.lost=true;this.onLost?.(reason);}
+  settings(){try{return this.track?.getSettings?.()||{};}catch{return {};}}
+  // Browsers do not give calibrated focal length in pixels. Do not mix mm and pixels.
+  fovDeg(){return null;}
+  async reopen(){return this.open();}
+  close(){
+    this.epoch++;clearInterval(this.poll);this.poll=null;
+    if(this.callbackId!=null)this.video.cancelVideoFrameCallback?.(this.callbackId);
+    this.callbackId=null;this.stream?.getTracks().forEach(t=>t.stop());
+    this.stream=null;this.track=null;this.video.srcObject=null;this.lastFrameAt=0;this.frameId=0;
   }
 }

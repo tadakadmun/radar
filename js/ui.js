@@ -36,6 +36,9 @@ export class UI {
     this.canvasSize = { w: 0, h: 0 };
     this.locked = false;
     this.night = null;
+    this.view = document.querySelector('.view');
+    this.viewMarker = document.createComment('camera view');
+    this.view.before(this.viewMarker);
   }
 
   setNight(on) {
@@ -48,8 +51,8 @@ export class UI {
   setLocked(locked) {
     if (this.locked === locked) return;
     this.locked = locked;
-    this.controls.toggleAttribute('inert', locked);
-    this.controls.classList.toggle('locked', locked);
+    // Stop and mute remain available. Configuration is locked.
+    this.calibBtn.disabled = locked;
     this.lockNote.hidden = !locked;
   }
 
@@ -82,9 +85,9 @@ export class UI {
   }
 
   showSpeed(geo) {
-    if (!geo.hasFix) {
+    if (!geo.hasSpeed) {
       this.speedEl.textContent = '––';
-      this.speedUnit.textContent = geo.error || 'รอสัญญาณ';
+      this.speedUnit.textContent = geo.error || 'ยังวัดความเร็วไม่ได้';
       return;
     }
     this.speedEl.textContent = String(Math.round(geo.speedKmh));
@@ -113,7 +116,8 @@ export class UI {
     this.laneEl.dataset.state = Math.abs(lane.offset) > 0.72 ? 'edge' : 'center';
     this.laneNote.textContent = lane.notices.length
       ? lane.notices[0]
-      : lane.curve === 'left' ? 'ทางโค้งซ้าย'
+      : Math.abs(lane.offset) > .72 ? 'ใกล้ขอบเลน'
+        : lane.curve === 'left' ? 'ทางโค้งซ้าย'
         : lane.curve === 'right' ? 'ทางโค้งขวา' : 'อยู่กลางเลน';
   }
 
@@ -190,7 +194,6 @@ export class UI {
       if (!isThreat) continue;
       const bits = [CLASS_TH[tr.cls] || tr.cls];
       if (tr.ttc != null) bits.push(`${tr.ttc.toFixed(1)} วิ`);
-      else if (tr.distanceM) bits.push(`${Math.round(tr.distanceM)} ม.`);
       const label = bits.join('  ');
       const tw = ctx.measureText(label).width + 14;
       const ly = Math.max(fs + 6, y - 6);
@@ -203,12 +206,12 @@ export class UI {
 
   /* ---------- หน้าปรับตั้งกล้อง ---------- */
 
-  openCalib() { this.calibPanel.hidden = false; this.#syncCalib(); }
-  closeCalib() { this.calibPanel.hidden = true; }
+  openCalib() { $('calibPreview').appendChild(this.view); this.calibPanel.hidden = false; this.#syncCalib(); }
+  closeCalib() { this.viewMarker.after(this.view); this.calibPanel.hidden = true; }
 
   #syncCalib() {
     const c = calib.get();
-    for (const k of ['horizonY', 'bottomLeft', 'bottomRight', 'topLeft', 'topRight', 'egoX', 'laneWidthM']) {
+    for (const k of ['horizonY', 'bottomLeft', 'bottomRight', 'topLeft', 'topRight', 'egoX', 'laneWidthM', 'cameraHeightM']) {
       const el = $('cal_' + k);
       if (el) { el.value = c[k]; const o = $('calv_' + k); if (o) o.textContent = (+c[k]).toFixed(3); }
     }
@@ -220,7 +223,7 @@ export class UI {
       if (!id?.startsWith('cal_')) return;
       const key = id.slice(4);
       const val = parseFloat(e.target.value);
-      calib.set({ [key]: val, verified: true });
+      calib.set({ [key]: val, verified: false });
       const o = $('calv_' + key);
       if (o) o.textContent = val.toFixed(3);
       onChange?.();

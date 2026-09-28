@@ -1,288 +1,96 @@
-/* osm.js — ข้อมูลถนนจาก OpenStreetMap ผ่าน Overpass API
- *
- * บริการนี้ใช้ฟรี ไม่ต้องมีคีย์ ไม่ต้องมีบัญชี แต่ "ฟรี" ยังมีต้นทุนสองอย่าง
- * ที่ต้องออกแบบรองรับ:
- *
- *   1. ค่าเน็ตมือถือของผู้ใช้ — รุ่นแรกดึงใหม่ทุก 30 วินาทีแล้วทิ้งของเก่า
- *      ขับสองชั่วโมงอาจกินหลายสิบเมกะไบต์ ซึ่งก็คือเงิน
- *      จึงเปลี่ยนมาเก็บเป็นตารางพื้นที่ (ราว 2 กม.) ไว้ใน IndexedDB
- *      เส้นทางที่ขับซ้ำทุกวันจึงไม่ต้องโหลดอีกเลย
- *
- *   2. ภาระของเซิร์ฟเวอร์อาสาสมัคร — จำกัดหนึ่งคำขอต่อ 30 วินาที
- *      และดึงเฉพาะตารางที่ยังไม่มีในเครื่อง
- *
- * มีเพดานปริมาณข้อมูลต่อการใช้งานหนึ่งครั้ง และปิดการใช้อินเทอร์เน็ตได้ทั้งหมด
- * ถ้าปิด ระบบยังเตือนชนท้ายและออกนอกเลนได้ครบ เพียงแต่ไม่มีข้อมูลความเร็วจำกัดและโค้ง
- */
-
-import { toLocalMeters, circleRadius, clamp } from './util.js';
+/* Optional public road data. OFF by default. Queries reveal an approximate location tile. */
+import {toLocalMeters,circleRadius,clamp} from './util.js';
 import * as store from './store.js';
-
-const ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-];
-
-const TILE_DEG = 0.02;            // ราว 2.2 กม.
-const TILE_MARGIN = 0.003;        // เผื่อขอบให้ถนนต่อเนื่องข้ามตาราง
-const MIN_INTERVAL_MS = 30000;
-const TILE_TTL_MS = 30 * 24 * 3600 * 1000;
-const PREFIX = 'osm:';
-const SETTINGS_KEY = 'navassist.osm.settings';
-
-const HW = '^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|motorway_link|trunk_link|primary_link|secondary_link)$';
-
-function parseMaxspeed(tag) {
-  if (!tag) return null;
-  const s = String(tag).trim().toLowerCase();
-  if (s === 'none' || s === 'signals' || s === 'walk') return null;
-  const m = s.match(/^(\d+(?:\.\d+)?)\s*(km\/h|kph|kmh)?$/);
-  if (m) return Math.round(parseFloat(m[1]));
-  const mph = s.match(/^(\d+(?:\.\d+)?)\s*mph$/);
-  if (mph) return Math.round(parseFloat(mph[1]) * 1.609);
-  return null;   // ค่าแบบ "TH:urban" เราไม่เดา เพราะเดาผิดแล้วเตือนผิด
-}
-
-function bearing(a, b) {
-  const toRad = Math.PI / 180;
-  const dLon = (b.lon - a.lon) * toRad;
-  const y = Math.sin(dLon) * Math.cos(b.lat * toRad);
-  const x = Math.cos(a.lat * toRad) * Math.sin(b.lat * toRad) -
-    Math.sin(a.lat * toRad) * Math.cos(b.lat * toRad) * Math.cos(dLon);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-}
-
-const angleDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
-const tileId = (lat, lon) => `${PREFIX}${Math.floor(lat / TILE_DEG)}_${Math.floor(lon / TILE_DEG)}`;
-
+const ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+const TILE=.02,MARGIN=.003,TTL=7*24*3600*1000,PREFIX='osm:',KEY='navassist.osm.settings';
+const tileId=(lat,lon)=>`${PREFIX}${Math.floor(lat/TILE)}_${Math.floor(lon/TILE)}`;
+const diff=(a,b)=>{const d=Math.abs(a-b)%360;return Math.min(d,360-d);};
+function bearing(a,b){const p=toLocalMeters(b.lat,b.lon,a.lat,a.lon);return (Math.atan2(p.x,p.y)*180/Math.PI+360)%360;}
+export function parseMaxspeed(tag){const s=String(tag||'').trim().toLowerCase();const m=s.match(/^(\d+(?:\.\d+)?)\s*(km\/h|kph|kmh|mph)?$/);if(!m)return null;const value=Number(m[1])*(m[2]==='mph'?1.609344:1);return value>0&&value<=160?Math.round(value):null;}
+function projection(lat,lon,a,b){const p=toLocalMeters(lat,lon,a.lat,a.lon),q=toLocalMeters(b.lat,b.lon,a.lat,a.lon),len=q.x*q.x+q.y*q.y,t=len?clamp((p.x*q.x+p.y*q.y)/len,0,1):0;return {distance:Math.hypot(p.x-q.x*t,p.y-q.y*t),point:{lat:a.lat+(b.lat-a.lat)*t,lon:a.lon+(b.lon-a.lon)*t}};}
 export class RoadData {
-  constructor() {
-    this.loaded = new Map();       // tileId -> ways[]
-    this.pending = new Set();
-    this.lastFetch = 0;
-    this.bytesThisSession = 0;
-    this.status = 'ยังไม่มีข้อมูลถนน';
-
-    // ค่าที่ผู้ใช้ตั้งได้: ปิดการใช้อินเทอร์เน็ต และเพดานข้อมูลต่อการใช้งานหนึ่งครั้ง
-    this.settings = { enabled: true, budgetMB: 25 };
-    try {
-      const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
-      if (raw) this.settings = { ...this.settings, ...raw };
-    } catch { }
-
-    store.prune(PREFIX, TILE_TTL_MS);
+ constructor(){this.loaded=new Map();this.pending=new Set();this.lastFetch=0;this.bytesThisSession=0;this.status='ข้อมูลถนนออนไลน์ปิดอยู่';this.settings={enabled:false,budgetMB:5,consentV:0};this.generation=0;this.ctrl=null;this.endpoint=0;this.candidate=null;this.persistent=true;
+  try{const v=JSON.parse(localStorage.getItem(KEY)||'null');if(v){this.settings.budgetMB=clamp(Number(v.budgetMB)||5,5,100);this.settings.enabled=v.enabled===true&&v.consentV===1;this.settings.consentV=v.consentV===1?1:0;}}catch{}
+  store.prune(PREFIX,TTL).catch(()=>{this.persistent=false;});
+ }
+ setSettings(patch){this.settings={...this.settings,...patch,budgetMB:clamp(Number(patch.budgetMB??this.settings.budgetMB)||5,5,100)};if(!this.settings.enabled){this.generation++;this.ctrl?.abort();this.candidate=null;this.status='ข้อมูลถนนออนไลน์ปิดอยู่';}try{localStorage.setItem(KEY,JSON.stringify(this.settings));}catch{}}
+ get dataUsedMB(){return this.bytesThisSession/1048576;}
+ get budgetExceeded(){return this.bytesThisSession>=this.settings.budgetMB*1048576;}
+ async update(lat,lon,heading,speed){
+  if(!this.settings.enabled)return;
+  const generation=this.generation,id=tileId(lat,lon);
+  if(this.loaded.has(id)||this.pending.has(id))return;
+  this.pending.add(id);
+  try{
+   let cached;try{cached=await store.get(id);}catch{this.persistent=false;}
+   if(generation!==this.generation||!this.settings.enabled)return;
+   if(cached?.schema===2&&Array.isArray(cached.ways)&&Date.now()-cached.t<TTL){this.loaded.set(id,cached.ways);this.status='ใช้ข้อมูลถนนที่เก็บไว้';return;}
+   if(!navigator.onLine){this.status='ออฟไลน์ ไม่มีข้อมูลพื้นที่นี้';return;}
+   if(this.budgetExceeded){this.status='ถึงงบข้อมูลที่ตั้งไว้';return;}
+   if(Date.now()-this.lastFetch<30000)return;
+   this.lastFetch=Date.now();await this.fetchTile(id,generation);
+   while(this.loaded.size>6)this.loaded.delete(this.loaded.keys().next().value);
+  }finally{this.pending.delete(id);}
+ }
+ async fetchTile(id,generation){
+  const [y,x]=id.slice(PREFIX.length).split('_').map(Number),box=[y*TILE-MARGIN,x*TILE-MARGIN,(y+1)*TILE+MARGIN,(x+1)*TILE+MARGIN].map(v=>v.toFixed(5)).join(',');
+  const query=`[out:json][timeout:12];way(${box})["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|motorway_link|trunk_link|primary_link|secondary_link)$"];out geom tags;`;
+  const ctrl=new AbortController();this.ctrl=ctrl;const timer=setTimeout(()=>ctrl.abort(),15000);
+  try{
+   const response=await fetch(ENDPOINTS[this.endpoint++%ENDPOINTS.length],{method:'POST',body:'data='+encodeURIComponent(query),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctrl.signal,credentials:'omit'});
+   if(!response.ok||!response.body)throw new Error('บริการข้อมูลถนนไม่ตอบสนอง');
+   const remaining=Math.max(0,this.settings.budgetMB*1048576-this.bytesThisSession),reader=response.body.getReader(),parts=[];let total=0;
+   while(true){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;this.bytesThisSession+=value.byteLength;if(total>Math.min(remaining,3*1048576)){await reader.cancel();ctrl.abort();throw new Error('หยุดดาวน์โหลดข้อมูลถนนเนื่องจากถึงงบ');}parts.push(value);}
+   const all=new Uint8Array(total);let offset=0;for(const p of parts){all.set(p,offset);offset+=p.length;}
+   const json=JSON.parse(new TextDecoder().decode(all));
+   if(generation!==this.generation||!this.settings.enabled)return;
+   const ways=(json.elements||[]).filter(v=>v.type==='way'&&Array.isArray(v.geometry)&&v.geometry.length>=2).map(v=>({
+    id:v.id,name:v.tags?.name||null,oneway:v.tags?.oneway||null,
+    maxspeed:v.tags?.['maxspeed:conditional']?null:parseMaxspeed(v.tags?.maxspeed),
+    forward:v.tags?.['maxspeed:conditional']?null:parseMaxspeed(v.tags?.['maxspeed:forward']),
+    backward:v.tags?.['maxspeed:conditional']?null:parseMaxspeed(v.tags?.['maxspeed:backward']),geom:v.geometry.filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)),
+   })).filter(w=>w.geom.length>=2);
+   this.loaded.set(id,ways);
+   try{await store.set(id,{schema:2,t:Date.now(),ways});this.persistent=true;}catch{this.persistent=false;}
+   this.status=this.persistent?'ข้อมูลถนนจาก OSM (ป้ายจริงเป็นหลัก)':'เก็บถาวรไม่ได้ ใช้ข้อมูลในรอบนี้เท่านั้น';
+  }catch(e){if(this.settings.enabled&&generation===this.generation)this.status=e.name==='AbortError'?'หยุดโหลดข้อมูลถนน':e.message;}
+  finally{clearTimeout(timer);if(this.ctrl===ctrl)this.ctrl=null;}
+ }
+ async clearCache(){this.generation++;this.ctrl?.abort();this.loaded.clear();this.candidate=null;for(const k of await store.keys())if(typeof k==='string'&&k.startsWith(PREFIX))await store.del(k);this.status='ล้างข้อมูลถนนแล้ว';}
+ match(lat,lon,heading,speed,accuracy=Infinity){
+  if(!this.settings.enabled||!Number.isFinite(heading)||!Number.isFinite(accuracy)||accuracy>20||speed<12){this.candidate=null;return null;}
+  const byWay=new Map();
+  for(const ways of this.loaded.values())for(const way of ways)for(let i=0;i<way.geom.length-1;i++){
+   const a=way.geom[i],b=way.geom[i+1];if(Math.abs(a.lat-lat)>.005&&Math.abs(b.lat-lat)>.005)continue;
+   const p=projection(lat,lon,a,b);if(p.distance>18)continue;
+   const brg=bearing(a,b),forward=diff(brg,heading)<=90,align=forward?diff(brg,heading):diff((brg+180)%360,heading);if(align>35)continue;
+   if(['yes','1','true'].includes(way.oneway)&&!forward||way.oneway==='-1'&&forward)continue;
+   const cost=p.distance+align*.3,old=byWay.get(way.id);
+   if(!old||cost<old.cost)byWay.set(way.id,{way,idx:i,forward,cost,projection:p.point});
   }
-
-  setSettings(patch) {
-    this.settings = { ...this.settings, ...patch };
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings)); } catch { }
-    if (!this.settings.enabled) this.status = 'ปิดการใช้ข้อมูลถนนอยู่';
-  }
-
-  get budgetExceeded() {
-    return this.bytesThisSession > this.settings.budgetMB * 1024 * 1024;
-  }
-
-  get dataUsedMB() { return this.bytesThisSession / 1048576; }
-
-  /** ตารางที่ควรมีไว้: ตารางปัจจุบัน และตารางถัดไปตามทิศทางที่วิ่ง */
-  #wantedTiles(lat, lon, headingDeg, speedKmh) {
-    const want = [tileId(lat, lon)];
-    if (headingDeg != null && speedKmh > 30) {
-      const rad = headingDeg * Math.PI / 180;
-      const ahead = 1.5 * TILE_DEG;
-      const nLat = lat + Math.cos(rad) * ahead;
-      const nLon = lon + Math.sin(rad) * ahead / Math.max(0.2, Math.cos(lat * Math.PI / 180));
-      const id = tileId(nLat, nLon);
-      if (id !== want[0]) want.push(id);
-    }
-    return want;
-  }
-
-  /** เรียกได้บ่อยเท่าไหร่ก็ได้ ตัวมันเองรู้ว่าเมื่อไหร่ควรทำงานจริง */
-  async update(lat, lon, headingDeg, speedKmh) {
-    if (!this.settings.enabled) { this.status = 'ปิดการใช้ข้อมูลถนนอยู่'; return; }
-
-    for (const id of this.#wantedTiles(lat, lon, headingDeg, speedKmh)) {
-      if (this.loaded.has(id) || this.pending.has(id)) continue;
-      this.pending.add(id);
-      try {
-        const cached = await store.get(id);
-        if (cached && Date.now() - cached.t < TILE_TTL_MS) {
-          this.loaded.set(id, cached.ways);
-          this.#updateStatus();
-          continue;
-        }
-        if (!navigator.onLine) { this.status = 'ออฟไลน์ ใช้เท่าที่เก็บไว้'; continue; }
-        if (this.budgetExceeded) { this.status = 'ถึงเพดานข้อมูลที่ตั้งไว้แล้ว'; continue; }
-        if (Date.now() - this.lastFetch < MIN_INTERVAL_MS) continue;
-
-        this.lastFetch = Date.now();
-        await this.#fetchTile(id);
-      } finally {
-        this.pending.delete(id);
-      }
-    }
-
-    // ปล่อยตารางที่อยู่ไกลออกจากหน่วยความจำ (ข้อมูลยังอยู่ในเครื่อง)
-    if (this.loaded.size > 6) {
-      const here = tileId(lat, lon);
-      for (const id of [...this.loaded.keys()]) {
-        if (id !== here && this.loaded.size > 6) this.loaded.delete(id);
-      }
-    }
-  }
-
-  async #fetchTile(id) {
-    const [ty, tx] = id.slice(PREFIX.length).split('_').map(Number);
-    const s = ty * TILE_DEG - TILE_MARGIN, n = (ty + 1) * TILE_DEG + TILE_MARGIN;
-    const w = tx * TILE_DEG - TILE_MARGIN, e = (tx + 1) * TILE_DEG + TILE_MARGIN;
-    const q = `[out:json][timeout:25];way(${s.toFixed(5)},${w.toFixed(5)},${n.toFixed(5)},${e.toFixed(5)})["highway"~"${HW}"];out geom tags;`;
-
-    for (const url of ENDPOINTS) {
-      try {
-        const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 15000);
-        const res = await fetch(url, {
-          method: 'POST',
-          body: 'data=' + encodeURIComponent(q),
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          signal: ctrl.signal,
-        });
-        clearTimeout(to);
-        if (!res.ok) continue;
-
-        const text = await res.text();
-        this.bytesThisSession += text.length;
-        const json = JSON.parse(text);
-
-        const ways = (json.elements || [])
-          .filter(el => el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2)
-          .map(el => ({
-            name: el.tags?.name || null,
-            maxspeed: parseMaxspeed(el.tags?.maxspeed),
-            geom: el.geometry.map(g => ({ lat: g.lat, lon: g.lon })),
-          }));
-
-        this.loaded.set(id, ways);
-        store.set(id, { t: Date.now(), ways });
-        this.#updateStatus();
-        return;
-      } catch { /* ลองเซิร์ฟเวอร์ถัดไป */ }
-    }
-    this.status = 'ดึงข้อมูลถนนไม่ได้ (ระบบอื่นยังทำงานปกติ)';
-  }
-
-  #updateStatus() {
-    const n = [...this.loaded.values()].reduce((sum, w) => sum + w.length, 0);
-    const mb = this.dataUsedMB;
-    this.status = `ถนน ${n} เส้น` + (mb > 0.05 ? ` • ใช้เน็ต ${mb.toFixed(1)} MB` : ' • จากที่เก็บไว้');
-  }
-
-  /** ล้างข้อมูลถนนที่เก็บไว้ทั้งหมด */
-  async clearCache() {
-    this.loaded.clear();
-    const ks = await store.keys();
-    for (const k of ks) if (typeof k === 'string' && k.startsWith(PREFIX)) await store.del(k);
-    this.status = 'ล้างข้อมูลถนนแล้ว';
-  }
-
-  /** หาถนนที่รถอยู่ตอนนี้ พร้อมข้อมูลจำกัดความเร็วและโค้งข้างหน้า */
-  match(lat, lon, headingDeg, speedKmh) {
-    let best = null;
-    for (const ways of this.loaded.values()) {
-      for (const way of ways) {
-        for (let i = 0; i < way.geom.length - 1; i++) {
-          const a = way.geom[i], b = way.geom[i + 1];
-          // ตัดถนนที่อยู่ไกลออกก่อนคำนวณจริง เพื่อไม่ให้ลูปนี้หนักเกินไป
-          if (Math.abs(a.lat - lat) > 0.005 && Math.abs(b.lat - lat) > 0.005) continue;
-          const d = pointToSegmentM(lat, lon, a, b);
-          if (d > 28) continue;
-          const brg = bearing(a, b);
-          let align = 0;
-          if (headingDeg != null) {
-            align = Math.min(angleDiff(brg, headingDeg), angleDiff((brg + 180) % 360, headingDeg));
-            if (align > 55) continue;
-          }
-          const cost = d + align * 0.25;
-          if (!best || cost < best.cost) {
-            best = {
-              way, idx: i, dist: d, cost,
-              forward: headingDeg == null || angleDiff(brg, headingDeg) <= 90,
-            };
-          }
-        }
-      }
-    }
-    if (!best) return null;
-    return {
-      way: best.way,
-      maxspeed: best.way.maxspeed,
-      distanceM: Math.round(best.dist),
-      curve: this.#curveAhead(best, lat, lon, speedKmh),
-    };
-  }
-
-  /** โค้งที่แหลมที่สุดในระยะที่จะถึงภายในไม่กี่วินาทีข้างหน้า */
-  #curveAhead(m, lat, lon, speedKmh) {
-    const geom = m.way.geom;
-    const lookaheadM = clamp((speedKmh / 3.6) * 6, 80, 400);
-    const order = m.forward
-      ? Array.from({ length: geom.length - m.idx }, (_, k) => m.idx + k)
-      : Array.from({ length: m.idx + 2 }, (_, k) => m.idx + 1 - k).filter(i => i >= 0);
-
-    const pts = order.map(i => toLocalMeters(geom[i].lat, geom[i].lon, lat, lon));
-    let acc = 0, minR = Infinity, atM = null;
-    for (let i = 1; i < pts.length - 1; i++) {
-      acc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      if (acc > lookaheadM) break;
-      if (acc < 15) continue;
-      const R = circleRadius(pts[i - 1], pts[i], pts[i + 1]);
-      if (R < minR) { minR = R; atM = Math.round(acc); }
-    }
-    if (!Number.isFinite(minR) || minR > 900) return null;
-
-    // ความเร็วที่ยังสบายในโค้งรัศมี R โดยใช้แรงเข้าศูนย์กลางประมาณ 0.25 g
-    const safeKmh = Math.round(Math.sqrt(0.25 * 9.81 * minR) * 3.6);
-    return { radiusM: Math.round(minR), distanceM: atM, safeKmh };
-  }
+  const choices=[...byWay.values()].sort((a,b)=>a.cost-b.cost),best=choices[0];
+  if(!best||choices[1]&&choices[1].cost-best.cost<8){this.candidate=null;return null;}
+  const key=best.way.id+':'+best.forward,now=Date.now();if(this.candidate?.key!==key){this.candidate={key,since:now};return null;}
+  if(now-this.candidate.since<1500)return null;
+  return {key,way:best.way,maxspeed:(best.forward?best.way.forward:best.way.backward)??best.way.maxspeed,curve:this.curveAhead(best,speed),matchedAt:now};
+ }
+ curveAhead(m,speed){
+  const g=m.way.geom,order=m.forward?g.slice(m.idx+1):g.slice(0,m.idx+1).reverse();
+  const pts=[{x:0,y:0},...order.map(p=>toLocalMeters(p.lat,p.lon,m.projection.lat,m.projection.lon))];
+  const ahead=clamp(speed/3.6*6,80,400);let acc=0,radius=Infinity,distance=0;
+  for(let i=1;i<pts.length-1;i++){acc+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);if(acc>ahead)break;if(acc<15)continue;const r=circleRadius(pts[i-1],pts[i],pts[i+1]);if(r<radius){radius=r;distance=acc;}}
+  if(!Number.isFinite(radius)||radius>900)return null;
+  return {radiusM:Math.round(radius),distanceM:Math.round(distance),advisoryThresholdKmh:Math.sqrt(.2*9.81*radius)*3.6};
+ }
 }
-
-function pointToSegmentM(lat, lon, a, b) {
-  const p = toLocalMeters(lat, lon, a.lat, a.lon);
-  const q = toLocalMeters(b.lat, b.lon, a.lat, a.lon);
-  const len2 = q.x * q.x + q.y * q.y;
-  if (len2 < 1e-6) return Math.hypot(p.x, p.y);
-  const t = clamp((p.x * q.x + p.y * q.y) / len2, 0, 1);
-  return Math.hypot(p.x - q.x * t, p.y - q.y * t);
+let sp={key:null,since:0,last:0},cv={key:null,last:0};
+export function resetRoadAssessments(){sp={key:null,since:0,last:0};cv={key:null,last:0};}
+export function assessSpeed(match,speed,now){
+ const key=match?`${match.key}:${match.maxspeed}`:null;
+ if(!match?.maxspeed||!Number.isFinite(speed)||now-match.matchedAt>2500||speed<25){sp.since=0;sp.key=null;return null;}
+ if(sp.key!==key){sp.key=key;sp.since=now;}
+ const over=speed-match.maxspeed;if(speed<=match.maxspeed*1.08||over<5){sp.since=0;return null;}
+ if(!sp.since){sp.since=now;return null;}if(now-sp.since<4000||now-sp.last<25000)return null;
+ sp.last=now;return {limit:match.maxspeed,over:Math.round(over)};
 }
-
-/* ---------- ตรรกะการเตือนความเร็วและโค้ง ---------- */
-
-const SPEED = { tolerance: 1.08, minOver: 5, sustainMs: 4000, cooldownMs: 25000 };
-const CURVE = { factor: 1.15, cooldownMs: 20000 };
-
-const spState = { since: 0, last: 0 };
-const cvState = { last: 0, lastRadius: 0 };
-
-export function assessSpeed(match, speedKmh, now) {
-  if (!match?.maxspeed || speedKmh < 25) { spState.since = 0; return null; }
-  const limit = match.maxspeed;
-  const over = speedKmh - limit;
-  if (speedKmh <= limit * SPEED.tolerance || over < SPEED.minOver) { spState.since = 0; return null; }
-  if (!spState.since) { spState.since = now; return null; }
-  if (now - spState.since < SPEED.sustainMs) return null;
-  if (now - spState.last < SPEED.cooldownMs) return null;
-  spState.last = now;
-  return { limit, over: Math.round(over) };
-}
-
-export function assessCurve(match, speedKmh, now) {
-  const c = match?.curve;
-  if (!c || speedKmh < 40) return null;
-  if (speedKmh <= c.safeKmh * CURVE.factor) return null;
-  if (now - cvState.last < CURVE.cooldownMs && Math.abs(c.radiusM - cvState.lastRadius) < 40) return null;
-  cvState.last = now;
-  cvState.lastRadius = c.radiusM;
-  return c;
-}
+export function assessCurve(match,speed,now){const c=match?.curve;if(!c||!Number.isFinite(speed)||now-match.matchedAt>2500||speed<40||speed<=c.advisoryThresholdKmh*1.15)return null;if(cv.key===match.key&&now-cv.last<20000)return null;cv={key:match.key,last:now};return c;}

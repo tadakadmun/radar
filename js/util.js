@@ -84,7 +84,7 @@ export function polyFit(pts, deg) {
   const mx = pts.reduce((s, p) => s + p.x, 0) / n;
   let ssRes = 0, ssTot = 0;
   for (const p of pts) { ssRes += (p.x - evalAt(p.y)) ** 2; ssTot += (p.x - mx) ** 2; }
-  return { c, r2: ssTot < 1e-6 ? 0 : clamp(1 - ssRes / ssTot, 0, 1), n, evalAt };
+  return { c, r2: ssTot < 1e-6 ? (ssRes < 1e-6 ? 1 : 0) : clamp(1 - ssRes / ssTot, 0, 1), rmse: Math.sqrt(ssRes / n), n, evalAt };
 }
 
 /** ฟิตเส้นตรง y = m·t + q แล้วคืนความชันพร้อม r² (ใช้กับอนุกรมเวลา) */
